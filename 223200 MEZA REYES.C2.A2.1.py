@@ -187,10 +187,10 @@ class NeuralNetworkGUI:
     
     def setup_tab_history(self, parent):
         self.tree_history = ttk.Treeview(parent, show="headings")
-        vsb = ttk.Scrollbar(parent, orient="vertical", command=self.tree_history.yview)
-        self.tree_history.configure(yscrollcommand=vsb.set)
+        hsb = ttk.Scrollbar(parent, orient="horizontal", command=self.tree_history.xview)
+        self.tree_history.configure(xscrollcommand=hsb.set)
         self.tree_history.grid(row=0, column=0, sticky="nsew")
-        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(0, weight=1)
     
@@ -247,7 +247,6 @@ class NeuralNetworkGUI:
     def run_training(self, matrix_x, y, base_lr, max_epochs, batch_size, tolerance):        
         lr_values = [base_lr - 0.05 + 0.01 * i for i in range(10)]
         error_evolutions = []  
-        best_history = None
         best_final_pred = None
         best_actual = None
 
@@ -260,23 +259,46 @@ class NeuralNetworkGUI:
             error_evolutions.append((lr, df_history))
             
             if abs(lr - base_lr) < 1e-6:
-                best_history = history_tracker
                 best_final_pred = final_pred
                 best_actual = actual
             
             self.root.after(0, lambda i=i: self.progress.config(value=i+1))
         
-        self.root.after(0, lambda: self.display_results(best_history, best_final_pred, best_actual, error_evolutions))
+        self.root.after(0, lambda: self.display_results(best_final_pred, best_actual, error_evolutions))
 
-    def display_results(self, history_tracker: TrainingHistory, final_pred: np.ndarray, actual: np.ndarray, error_evolutions):        
-        df_history = history_tracker.get_dataframe()
+    def display_results(self, final_pred: np.ndarray, actual: np.ndarray, error_evolutions):        
+        report_rows = []
+        for i, (lr, df_hist) in enumerate(error_evolutions):
+            run_id = i + 1
+            first_row = df_hist.iloc[0]
+            last_row = df_hist.iloc[-1]            
+            weight_cols = [col for col in df_hist.columns if col.startswith('w')]            
+            w0_list = [float(first_row[col]) for col in weight_cols]
+            wf_list = [float(last_row[col]) for col in weight_cols]
+            w0_str = ", ".join(f"{val:.4f}" for val in w0_list)
+            wf_str = ", ".join(f"{val:.4f}" for val in wf_list)
+            bias_value = f"{float(last_row['bias']):.4f}" if last_row['bias'] is not None else ""
+            num_epochs = df_hist.shape[0]
+            report_rows.append({
+                "#": run_id,
+                "N": float(lr).__round__(2),
+                "W0": w0_str,
+                "Wf": wf_str,
+                "bias": bias_value,
+                "# epocas": num_epochs
+            })
+        report_df = pd.DataFrame(report_rows, columns=["#", "N", "W0", "Wf", "bias", "# epocas"])
         for item in self.tree_history.get_children():
             self.tree_history.delete(item)
-        self.tree_history["columns"] = list(df_history.columns)
-        for col in df_history.columns:
-            self.tree_history.heading(col, text=col)
-            self.tree_history.column(col, anchor="center", width=80)
-        for _, row in df_history.iterrows():
+        self.tree_history["columns"] = list(report_df.columns)
+        for col in report_df.columns:
+            self.tree_history.heading(col, text=col)         
+            if col in ["W0", "Wf"]:
+                width = 280
+            else:
+                width = 80
+            self.tree_history.column(col, anchor="center", width=width)
+        for _, row in report_df.iterrows():
             self.tree_history.insert("", "end", values=list(row))
         
         self.ax.clear()
